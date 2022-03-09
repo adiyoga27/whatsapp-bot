@@ -1,7 +1,7 @@
 import { Boom } from '@hapi/boom'
 import P from 'pino'
 import makeWASocket, {AnyMessageContent, delay, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useSingleFileAuthState } from '@adiwajshing/baileys'
-
+import * as path from "path";
 // the store maintains the data of the WA connection in memory
 // can be written out to a file & read from it
 const store = makeInMemoryStore({ logger: P().child({ level: 'debug', stream: 'store' }) })
@@ -30,6 +30,7 @@ const startSock = async() => {
     const server = http.createServer(app);
     const socketIO = require('socket.io');
     const io = socketIO(server, {
+		allowEIO3: true, // false by default
         cors: {
             origin: "*"
         }
@@ -94,36 +95,71 @@ const startSock = async() => {
 	// sock.ev.on('contacts.upsert', m => console.log(m))
 
 	sock.ev.on('connection.update', (update) => {
-		const { connection, lastDisconnect } = update
+		const { connection, lastDisconnect,qr } = update
 		if(connection === 'close') {
 			// reconnect if not logged out
 			if((lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut) {
 				startSock()
 			} else {
-				console.log('connection closed')
+				console.log('connection closed :')
 			}
 		}
+
+
+		
+		console.log('connection qrcode : ', qr);
+
+
+
         
 		// console.log('connection update', update)
 	})
 	// listen for when the auth credentials is updated
 	sock.ev.on('creds.update', saveState)
 
+	
     io.on("connection", function (socket: any) {
 
-        sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect, qr } = update
-            qrcode.toDataURL(qr, (err : any, url:any) => {
-                socket.emit('message', 'QR Code received, scan please!')
-                console.log(qr);
-                socket.emit("qr", url);
-            });
+
+
+		sock.ev.on('connection.update', (update) => {
+			const { connection, lastDisconnect, qr } = update
+			socket.emit("qr", qr);
+	
+			if(connection === 'close') {
+				// reconnect if not logged out
+				if((lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut) {
+					socket.emit("qr", qr);
+				} else {
+					console.log('connection closed :')
+				}
+			}
+
+		})
+
+		socket.on('ready', () => {
+                io.emit('loader', '')
+                socket.emit('message', 'Please wait..')
+                // connect()
+        })
+        
+        socket.on('scanqr', () => {
+          
+                io.emit('loader', '')
+                socket.emit('message', 'Please wait..')
+               
             
         })
+      
+	
     })
 	// return sock
 
-    app.get("/", (req: any, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { status: boolean; message: string }): any; new(): any } }; writeHead: (arg0: number, arg1: { 'Content-Type': string }) => void; end: (arg0: string) => void }) => {
+	app.get("/", (req: any, res: any) => {
+		res.sendFile(path.resolve("./client/index.html"));
+	  });
+
+    app.get("/send", (req: any, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { status: boolean; message: string }): any; new(): any } }; writeHead: (arg0: number, arg1: { 'Content-Type': string }) => void; end: (arg0: string) => void }) => {
         const id = '6285792486889@s.whatsapp.net' // the WhatsApp ID 
         // send a simple text!
         const sentMsg  =  sock.sendMessage(id, { text: 'oh hello there' })   
